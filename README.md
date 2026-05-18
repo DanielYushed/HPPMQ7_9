@@ -1,48 +1,76 @@
 # Homotopic Path Planning for Robotics (HPPM)
 ### Optimized Hardware and Software Co-design
 
-Hello! This repository contains a complete system for autonomous robot navigation. The best part about this project is how it combines the flexibility of software testing with the raw speed of hardware execution. 
+Hello! Welcome to this repository. This project solves a classic robotics problem: navigating a robot safely through a field of obstacles. 
 
-We use the Homotopic Path Planning Method to find safe routes from a starting point to a goal. The algorithm uses a Newton-Raphson numerical method to avoid solid obstacles dynamically. We built the core hardware using fixed-point arithmetic (Q7.9 format). This makes the system incredibly fast and lightweight.
+The coolest part about this system is how it bridges software and hardware. We use the Homotopic Path Planning Method (HPPM) and a Newton-Raphson algorithm to calculate safe routes. We first test everything in software using standard math. Then, we translate that math into a highly optimized fixed-point hardware design that runs lightning-fast on an FPGA.
 
 ## Project Structure
 
-I organized the code into three main sections so you can find exactly what you need.
+I organized the code into three main sections to keep things clear.
 
-### 1. Simulation Tools (The HPPM folder)
-This folder holds the software models and your testing environment. Use these tools to test your ideas on a computer before moving to the physical board.
-* `HPPM.c`: This is the baseline mathematical model. It uses standard floating-point numbers. It is great for understanding the pure algorithm.
-* `HPPM_FPGA.c`: This is the fixed-point version. It acts as an exact software mirror of the hardware circuit. It includes all the mathematical clamps and optimizations we use to save resources on the board.
-* `CorrerTodo.py`: A Python automation script. It runs your compiled programs against different maps and configuration files. After running the tests, it draws the robot trajectories and saves them as images for quick review.
+### 1. Simulation Tools (The `HPPM` Folder)
+This folder is your testing ground. It contains the software models to validate the algorithms before touching the hardware.
+* `HPPM.c`: The baseline mathematical model. It uses standard floating-point numbers. It calculates the "perfect" route.
+* `HPPM_FPGA.c`: The exact hardware twin. It uses fixed-point arithmetic (Q7.9 format) and custom mathematical clamps. It simulates exactly what the physical chip will do.
+* `CorrerTodo.py`: A Python automation script. It runs both C programs, compares them against different obstacle maps, and automatically draws the trajectory images.
 
 ### 2. Hardware Architecture (Verilog RTL)
-These files describe the digital circuits. They are highly optimized for boards with limited logic elements and multipliers, like the Altera Cyclone II.
-* **Master Control**: `hppm_top.v` and `hppm_core.v`. These files run the main state machine and coordinate all the sub-modules.
+These files describe the digital circuits. They are custom-built to save resources and run efficiently on boards like the Altera Cyclone II.
+* **Master Control**: `hppm_top.v` and `hppm_core.v`. These files manage the main state machine and coordinate all sub-modules.
 * **Repulsive Calculation**: `repulsive_acc.v`. This module calculates how obstacles push the robot away. It includes a mathematical wall to prevent dividing by zero during collisions.
-* **Linear Algebra**: `newton_step.v` and `jacob_assembler.v`. They build and solve the 3x3 matrix using Cramer's Rule. They feature a dynamic row scaler to prevent bit overflows.
-* **Math Functions**: `fx_norm3d.v` and `fx_luts.v`. They calculate 3D geometry and angles natively without using floating-point units.
-* **Memory and Serial Port**: `uart_rx.v`, `uart_tx.v`, and `dual_port_ram.v`. They manage the communication with your computer and store the coordinates of up to 200 obstacles.
+* **Linear Algebra**: `newton_step.v` and `jacob_assembler.v`. They build and solve a 3x3 matrix. We added a dynamic row scaler here to prevent bit overflows without wasting extra hardware.
+* **Communication and Memory**: `uart_rx.v`, `uart_tx.v`, and `dual_port_ram.v`. They handle PC communication and store the obstacle coordinates.
 
-### 3. Control Interface
-* We included a MATLAB script to manage the hardware. You can use it to draw obstacle maps, send them to the FPGA via UART, and plot the real-time path the chip calculates.
+### 3. MATLAB Control Interface
+We included a MATLAB script to manage the physical hardware. You can use it to read obstacle maps, send them to the FPGA via the serial port, and plot the real-time path the chip calculates.
 
-## How to use this project
+---
 
-### Running the PC Simulations
-1. Create the input folders `inputs_pendientes` and `inputs_obstaculos`. Place your text configuration files inside them.
-2. Compile the C files into executables and place them in the `output` folder.
-3. Run the `CorrerTodo.py` script. 
-4. Open the `resultados_img` folder to see the drawn maps and verify your robot paths.
+## Simulation Results
 
-### Running the FPGA Hardware
-1. Open Quartus II and create a new project for your specific board.
-2. Add all the `.v` files to your project.
-3. Assign the physical pins for the clock, the reset button, and the UART communication lines.
-4. Compile the project and upload the file to your board.
-5. Open the MATLAB script, set your COM port, and run it. You will see the FPGA receive the map and return the calculated path instantly.
+Here is a side-by-side look at how the software and hardware algorithms handle a complex map with 50 obstacles. 
 
-## Hardware Optimization Notes
+**Standard Floating-Point Model (`HPPM.c`)** This shows the smooth baseline trajectory using infinite decimal precision.
+![Simulation Floating Point](50_P3_normal.png)
 
-We designed the hardware blocks strictly to save space and power. 
-* **Matrix Scaling**: The linear algebra module checks the numbers before doing matrix multiplication. If the numbers grow too large, it shifts them down. This keeps all matrix operations strictly within 16 bits and saves dozens of hardware multipliers.
-* **Force Pre-shifting**: The repulsive calculation scales down raw forces before multiplying them with physical distances. This avoids 64-bit numbers entirely and keeps the data bus clean and fast.
+**Fixed-Point Hardware Model (`HPPM_FPGA.c`)** This shows the exact hardware behavior using 16-bit math. Notice how it successfully reaches the goal while keeping the math incredibly lightweight.
+![Simulation Fixed Point](50_P3.png)
+
+---
+
+## ⚙️ Hardware Implementation and Performance
+
+We synthesized and routed this design specifically for the **Altera Cyclone II (EP2C35F672C6)** using Quartus II. 
+
+The goal was to maximize math capabilities without overflowing the logic elements. By keeping the main buses at 16 bits and using smart pre-shifting techniques, we achieved a highly efficient fit.
+
+**Performance:**
+* **Operating Frequency (Fmax):** 56.18 MHz
+
+**Resource Usage:**
+* **Total Logic Elements:** 19,803 / 33,216 (60%)
+* **Dedicated Logic Registers:** 4,742 (14%)
+* **Total Memory Bits:** 16,384 / 483,840 (3%)
+* **Embedded Multipliers (9-bit):** 70 / 70 (100%)
+
+![Quartus Synthesis Report](DatosDe2.png)
+
+*Note: We purposefully utilized 100% of the embedded multipliers to accelerate the 3x3 matrix inversions, while keeping the logic elements usage at a comfortable 60%.*
+
+---
+
+## How to Run It
+
+### Testing the PC Simulations
+1. Open the `HPPM` folder.
+2. Ensure you have your input text files ready (`pendientes.txt` and `obstaculos1.txt`).
+3. Compile both `HPPM.c` and `HPPM_FPGA.c` using GCC.
+4. Run the `CorrerTodo.py` script to automatically test the maps and generate the output images.
+
+### Running the Physical FPGA
+1. Open Quartus II and create a new project for your Cyclone II board.
+2. Add all the `.v` files to the project.
+3. Assign the physical pins for the clock, the reset button, and the UART Rx/Tx lines.
+4. Compile the project and program the FPGA.
+5. Open the MATLAB script, set your COM port, and run it. The board will calculate the trajectory and send it back to your screen instantly.
